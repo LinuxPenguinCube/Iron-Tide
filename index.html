@@ -1,0 +1,850 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Iron Tide — BAP Almirante Grau</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+:root{--panel:#f1ecdc;--ink:#14232b;--muted:#4b5b62;--brass:#c9a24b;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);background:#0e2a3a}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--panel:#10222d;--ink:#e8e2cf;--muted:#9fb0b8;color-scheme:dark}}
+:root[data-theme="dark"]{--panel:#10222d;--ink:#e8e2cf;--muted:#9fb0b8;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{height:100%;margin:0;background:#0e2a3a;overflow:hidden;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+#wrap{position:relative;height:100%;width:100%}
+canvas{display:block;width:100%;height:100%;cursor:crosshair}
+#hud{position:absolute;inset:12px 14px auto 14px;display:flex;justify-content:space-between;pointer-events:none;color:#e8e2cf;text-shadow:0 1px 3px #000a}
+.bars{display:grid;grid-template-columns:auto 150px;gap:6px 10px;align-items:center;font-size:13px}
+.bar{height:9px;border-radius:5px;background:#0006;border:1px solid #e8e2cf55;overflow:hidden}
+.bar i{display:block;height:100%;width:100%;background:#7fc38a}
+#rl{background:#c9a24b}
+#ml{background:#8aa8c4}
+.mrow{display:none}
+.mrow.show{display:contents}
+.stat{text-align:right;font-size:14px}
+#sc{font-family:"Palatino Linotype",Palatino,Georgia,serif;font-size:34px;line-height:1.1}
+#th{position:absolute;left:14px;bottom:14px;color:#e8e2cf;font-size:14px;text-shadow:0 1px 3px #000a;pointer-events:none}
+#msg{position:absolute;left:0;right:0;top:28%;text-align:center;font:600 40px "Palatino Linotype",Palatino,Georgia,serif;color:#e8e2cf;text-shadow:0 2px 8px #000;opacity:0;transition:opacity .5s;pointer-events:none}
+#msg.show{opacity:1}
+#panel{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#0e2a3acc}
+#panel[hidden]{display:none}
+.card{background:var(--panel);color:var(--ink);max-width:420px;margin:16px;padding:28px 30px;border-radius:10px;border:2px solid var(--brass);position:relative;overflow:hidden}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:6px;background:linear-gradient(to right,#d1432f 0 33%,#f5f1e4 33% 66%,#d1432f 66% 100%)}
+h1{margin:0 0 8px;font:700 38px "Palatino Linotype",Palatino,Georgia,serif}
+.card p{margin:0 0 12px;line-height:1.45}
+.card ul{margin:0 0 14px;padding-left:20px;line-height:1.6}
+.muted{color:var(--muted);font-size:14px}
+button{font:600 16px system-ui,sans-serif;padding:11px 22px;border:0;border-radius:6px;background:var(--brass);color:#14232b;cursor:pointer}
+button:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+</style>
+</head>
+<body>
+<div id="wrap">
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="bars"><span>Hull</span><div class="bar"><i id="hp"></i></div><span id="wlbl">Guns</span><div class="bar"><i id="rl"></i></div><span class="mrow" id="mlbl">Missiles</span><div class="bar mrow" id="mlwrap"><i id="ml"></i></div></div>
+  <div class="stat"><div id="wv">Wave 1</div><div id="sc">0</div><div id="rk" style="font-size:11px;letter-spacing:.04em;color:#c9a24b"></div></div>
+</div>
+<button id="mpLeave" hidden style="position:absolute;right:14px;bottom:14px;pointer-events:auto;background:#d1432f;color:#f5f1e4;font-size:12px;padding:8px 14px">Leave Battle</button>
+<div id="th"></div>
+<div id="msg"></div>
+<div id="panel">
+  <div class="card">
+    <h1 id="ttl">Iron Tide</h1>
+    <p style="margin:-6px 0 14px;font-size:12px;letter-spacing:.08em;color:var(--muted);font-weight:600">MARINA DE GUERRA DEL PERÚ</p>
+    <p id="sub">Sink the enemy fleet before it sinks you. Each wave is bigger than the last.</p>
+    <ul>
+      <li><b>W / S</b> raise or lower engine speed</li>
+      <li><b>A / D</b> turn the rudder</li>
+      <li><b>Mouse</b> aim, <b>click</b> or <b>Space</b> to fire your main weapon</li>
+      <li><b>Click an enemy ship</b> to select it (up to 3, generous click radius) — guns aim at your first selection, and <b>E</b> (missiles), <b>T</b> (torpedoes) or <b>H</b> (helicopter/aircraft) home in on everything selected; with nothing selected, missiles and torpedoes just fly straight and can miss</li>
+      <li><b>Press Shift</b> to snorkel (faster, but can be detected at real range), <b>press C</b> to crash dive (slow, safe, runs on a limited battery) — submarine only</li>
+      <li><b>V</b> active sonar ping (submarine only) — long reveal of ships at long range, but it also gives your position away</li>
+      <li><b>B</b> opens the Tomahawk menu (submarine only) — a big sonar board where you click contacts to pick up to 2 targets, then press B again to launch long-range Tomahawks at them, even outside normal missile range. It gives away your position and those ships start hunting you</li>
+      <li><b>X</b> deploys an acoustic decoy (submarine only) — any ship currently hunting you gets fooled into dropping depth charges on the decoy's position instead of yours</li>
+      <li><b>G</b> launches a scout plane (carrier only) — temporarily extends your radar range</li>
+      <li><b>R</b> damage control — a repair crew patches the hull, on a cooldown, for any ship</li>
+    </ul>
+    <p class="muted">Passive sonar is short-ranged now — you'll need the active ping to really see what's out there, but it tells everyone in range where you are. Once a ship spots your submarine, it remembers you for a long while and can call nearby ships in on the search too — watch for a pulsing red ring on the sonar, that means someone has you. Crash dive is the only sure way to disappear completely. Torpedoes and missiles only truly home when you've selected a target first; fired blind, they travel straight and can miss a maneuvering ship. A carrier that takes heavy damage loses flight deck capacity. Land blocks everything, so use islands as cover.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px">
+      <button class="pick" data-c="destroyer" data-unlock="0" style="flex:1 1 150px;background:#d9d2bd;text-align:left;padding:12px"><b>BAP Guise</b><br><span class="muted pickdesc" style="font-size:12px">Fast, agile, rapid-fire guns</span></button>
+      <button class="pick" data-c="gundestroyer" data-unlock="5" style="flex:1 1 150px;background:#d9d2bd;text-align:left;padding:12px"><b>BAP Bolognesi</b><br><span class="muted pickdesc" style="font-size:12px">Modern missile destroyer — radar, one fast gun, missiles, torpedo tubes, helicopter, very fast and agile</span></button>
+      <button class="pick" data-c="carrier" data-unlock="10" style="flex:1 1 150px;background:#d9d2bd;text-align:left;padding:12px"><b>BAP Quiñones</b><br><span class="muted pickdesc" style="font-size:12px">Aircraft carrier with 2 escort destroyers — huge and slow, launches real sorties that fly out, strike and return to deck</span></button>
+      <button class="pick" data-c="cruiser" data-unlock="16" style="flex:1 1 150px;background:#d9d2bd;text-align:left;padding:12px"><b>BAP Almirante Grau</b><br><span class="muted pickdesc" style="font-size:12px">Massive hull, radar, click-to-lock guns, missiles, torpedo tubes, helicopter strike</span></button>
+      <button class="pick" data-c="submarine" data-unlock="22" style="flex:1 1 150px;background:#d9d2bd;text-align:left;padding:12px"><b>BAP Angamos</b><br><span class="muted pickdesc" style="font-size:12px">Sonar, torpedoes, missiles, snorkel or crash dive, long-range Tomahawks, acoustic decoys</span></button>
+    </div>
+    <button id="go" disabled style="opacity:.5">Choose a ship first</button>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid #0002">
+      <input id="mpCode" type="text" placeholder="open-sea" maxlength="24" style="flex:1;padding:9px 10px;border-radius:6px;border:1px solid #0003;font:14px system-ui">
+      <button id="mpGo" disabled style="opacity:.5;background:#8aa8c4">Battle Online</button>
+    </div>
+    <p class="muted" style="font-size:11px;margin:8px 0 0">PvP only — everyone who enters the same code fights each other in real time, no AI. Requires being signed in to this org or invited as a guest.</p>
+  </div>
+</div>
+</div>
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const cv=$('c'),ctx=cv.getContext('2d');
+const WORLD=2600,RANGE=800,SH=380,RELOAD=2.2;
+const MRANGE=1300,MSH=230,MRELOAD=7,MDMG=55;
+const TRANGE=1100,TSH=160,TDMG=50;
+const CTRELOAD=5,HELI_CD=15,HELI_DMG=35,HELI_TARGETS=3,DIVE_MUL=.68,DIVE_SPOT=420;
+const DEEP_MUL=.22,DEEP_SPOT=110,DEEP_REGEN=4,DC_CD=22,DC_HEAL=30;
+const MBLAST=140,TBLAST=55,TORP_TURN=1.6;
+const CONTACT_TIME=9,DC_BASE=16,DC_K=.09,DC_DMG=22,ALERT_RADIUS=950,ALERT_TIME=CONTACT_TIME*.55;
+const BATTERY_MAX=100,BATTERY_DRAIN=100/45,BATTERY_CHARGE=100/20,BATTERY_MIN_DIVE=15;
+const SONAR_PASSIVE_R=600,SONAR_ACTIVE_R=2200,SONAR_CD=16,SONAR_DUR=7;
+const SCOUT_CD=10,SCOUT_DUR=6,SCOUT_RADAR_R=3200;
+const MISSILE_MAX=2,SELECT_MAX=3,TOM_SELECT_MAX=2,CLICK_TOL=70;
+const TOM_DMG=70,TOM_BLAST=110,TOM_SPEED=260,TOM_CD=20,HUNT_RADIUS=1800,HUNT_TIME=CONTACT_TIME*1.6;
+const PLANE_SPEED=320;
+const ESCORT_HP=70,ESCORT_N=2;
+const DECOY_CD=16,DECOY_DUR=9;
+const CLASS={
+  destroyer:{hp:100,vmax:150,turn:.85,weapon:'guns',reload:RELOAD,shells:2,shellDmg:20,hull:'#d9d2bd',len:26,missiles:false,turrets:0,label:'BAP Guise'},
+  gundestroyer:{hp:170,vmax:155,turn:.88,weapon:'guns',reload:1.6,shells:2,shellDmg:18,hull:'#9aa0a0',len:30,missiles:true,mReload:3.6,torps:true,heli:true,turrets:1,lock:true,radar:true,modern:true,label:'BAP Bolognesi'},
+  cruiser:{hp:450,vmax:100,turn:.68,weapon:'guns',reload:2.4,shells:4,shellDmg:16,hull:'#aab0ac',len:34,missiles:true,torps:true,heli:true,turrets:4,lock:true,radar:true,label:'BAP Almirante Grau'},
+  carrier:{hp:600,vmax:55,turn:.3,weapon:'air',reload:3.2,airDmg:22,airPool:4,hull:'#8f8a72',len:48,missiles:false,turrets:0,heli:true,lock:true,radar:true,isCarrier:true,label:'BAP Quiñones'},
+  submarine:{hp:85,vmax:72,turn:.6,weapon:'torpedo',reload:3.4,torpDmg:TDMG,hull:'#283b38',len:30,missiles:true,turrets:0,sub:true,sonar:true,label:'BAP Angamos'}
+};
+let chosenClass=null;
+const SPEEDS=[-35,0,55,100,150],TH=['Astern','Stopped','Slow ahead','Half ahead','Full ahead'];
+let W=0,H=0,dpr=1;
+function resize(){dpr=window.devicePixelRatio||1;const r=cv.getBoundingClientRect();W=r.width;H=r.height;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+addEventListener('resize',resize);resize();
+
+let seed=11;const sr=()=>{seed=(seed*16807)%2147483647;return(seed-1)/2147483646};
+const islands=[];
+while(islands.length<13){const i={x:150+sr()*(WORLD-300),y:150+sr()*(WORLD-300),r:45+sr()*85};if(Math.hypot(i.x-WORLD/2,i.y-WORLD/2)>i.r+320)islands.push(i)}
+
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const norm=a=>{while(a>Math.PI)a-=2*Math.PI;while(a<-Math.PI)a+=2*Math.PI;return a};
+function pushOut(o,pad){for(const i of islands){const dx=o.x-i.x,dy=o.y-i.y,d=Math.hypot(dx,dy)||1,m=i.r+pad;if(d<m){o.x=i.x+dx/d*m;o.y=i.y+dy/d*m}}o.x=clamp(o.x,30,WORLD-30);o.y=clamp(o.y,30,WORLD-30)}
+
+let st='menu',P,enemies,shells,missiles,fx,wave,score,kills,shake=0,advancing=false,radarSweep=0;
+let mpMode=false,sbChannel=null,myPeer=null,peerMirror={};
+const SUPABASE_URL='https://etatbicifklyfqhkpftu.supabase.co';
+const SUPABASE_KEY='sb_publishable_81uzWSTsmOKCZBi197jewA_8AU-O1x8';
+let sbClient=null;
+try{sbClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY)}catch(e){sbClient=null}
+const keys={};let mouse={x:0,y:0},mdown=false;
+function checkWaveClear(){if(!enemies.length&&!advancing){advancing=true;setTimeout(()=>{advancing=false;if(st==='play')nextWave()},1500)}}
+function dealDamage(e,dmg,x,y){
+  const ix=x!=null?x:e.x,iy=y!=null?y:e.y;
+  if(e.peerId){
+    if(sbChannel)sbChannel.send({type:'broadcast',event:'hit',payload:{to:e.peerId,dmg,from:myPeer}});
+    boom(ix,iy,'hit',.4);
+    return false;
+  }
+  e.hp-=dmg;boom(ix,iy,'hit',.4);
+  if(e.hp<=0){
+    const pts=e.boss?400:100;score+=pts;kills++;boom(e.x,e.y,'boom',.9);
+    fx.push({k:'score',x:e.x,y:e.y,t:0,d:1.1,val:pts});
+    return true;
+  }
+  return false;
+}
+function mpRespawn(){
+  setTimeout(()=>{
+    if(!mpMode||st!=='play')return;
+    const c=CLASS[P.cls];P.hp=c.hp;
+    const ang=Math.random()*6.283;P.x=WORLD/2+Math.cos(ang)*700;P.y=WORLD/2+Math.sin(ang)*700;
+    say('Back in the fight!');
+  },2500);
+}
+function syncPeerMirror(){
+  if(!sbChannel)return;
+  const state=sbChannel.presenceState();
+  const seen=new Set();
+  for(const key of Object.keys(state)){
+    if(key===myPeer)continue;
+    const list=state[key];if(!list||!list.length)continue;
+    const pr=list[list.length-1];
+    if(typeof pr.x!=='number'||typeof pr.y!=='number')continue;
+    seen.add(key);
+    let m=peerMirror[key];
+    if(!m)m=peerMirror[key]={peerId:key,contactT:0,lastX:0,lastY:0,lastVx:0,lastVy:0,dir:1,rl:999};
+    m.x=pr.x;m.y=pr.y;m.a=typeof pr.a==='number'?pr.a:0;
+    m.hp=typeof pr.hp==='number'?pr.hp:0;m.maxhp=typeof pr.maxhp==='number'?pr.maxhp:1;
+    m.cls=(pr.cls&&CLASS[pr.cls])?pr.cls:'destroyer';m.kills=pr.kills||0;
+  }
+  for(const id of Object.keys(peerMirror))if(!seen.has(id))delete peerMirror[id];
+}
+
+const RANKS=[[1,'Guardiamarina'],[4,'Alférez de Fragata'],[8,'Teniente Segundo'],[12,'Teniente Primero'],[16,'Capitán de Corbeta'],[20,'Capitán de Fragata'],[25,'Capitán de Navío'],[30,'Contralmirante'],[36,'Almirante']];
+function rankFor(w){let r=RANKS[0][1];for(const [ww,name] of RANKS){if(w>=ww)r=name;else break}return r}
+function reset(){const c=CLASS[chosenClass||'destroyer'];P={x:WORLD/2,y:WORLD/2,a:-Math.PI/2,v:0,th:1,hp:c.hp,maxhp:c.hp,rl:0,mrl:0,trl:0,hrl:0,dcrl:0,tomCd:0,decoyCd:0,dive:false,deep:false,wk:0,cls:chosenClass||'destroyer',battery:BATTERY_MAX,sonarCd:0,sonarT:0,scoutCd:0,scoutT:0,deckDmg:0,selected:[],tomMenu:false,tomSelected:[],planes:[],decoys:[],mods:{reload:1,speed:1,dmg:1},escorts:[],shots:0,hits:0,rank:RANKS[0][1],presenceT:0,lastHitFrom:null};
+  if(c.isCarrier){for(let i=0;i<ESCORT_N;i++)P.escorts.push({x:P.x,y:P.y,a:P.a,v:0,hp:ESCORT_HP,maxhp:ESCORT_HP,rl:Math.random()*2,wk:0,formX:-60,formY:i===0?-85:85})}
+  enemies=[];shells=[];missiles=[];fx=[];wave=0;score=0;kills=0;advancing=false;
+  if(mpMode)say('Battle online — good hunting!');else nextWave();}
+function spawnPos(){for(let n=0;n<40;n++){const a=Math.random()*6.283,d=800+Math.random()*300,x=P.x+Math.cos(a)*d,y=P.y+Math.sin(a)*d;if(x<90||y<90||x>WORLD-90||y>WORLD-90)continue;if(islands.some(i=>Math.hypot(x-i.x,y-i.y)<i.r+70))continue;return{x,y}}return{x:100,y:100}}
+function nextWave(){wave++;
+  const breather=wave>4&&wave%4===0;
+  const baseN=2+Math.floor((wave-1)*.65);
+  const n=Math.max(2,Math.min(breather?baseN-2:baseN,10));
+  const stage=Math.min(wave-1,14);
+  const eHp=70+stage*7,eDmg=14+stage*1.3;
+  for(let i=0;i<n;i++){const p=spawnPos();enemies.push({x:p.x,y:p.y,a:Math.random()*6.283,v:66+Math.min(stage,8)*2,hp:eHp,maxhp:eHp,dmg:eDmg,rl:2+Math.random()*2,dir:Math.random()<.5?1:-1,wk:0,contactT:0,lastX:0,lastY:0,lastVx:0,lastVy:0})}
+  P.mods.dmg=1+Math.min(wave-1,10)*.025;
+  P.mods.reload=1-Math.min(wave-1,10)*.02;
+  const newRank=rankFor(wave);
+  if(newRank!==P.rank){P.rank=newRank;sfx('heal');say('Promoted — '+newRank)}
+  else say(breather?'Wave '+wave+' — lighter contact':'Wave '+wave);
+  if(wave>1)P.hp=Math.min(P.maxhp,P.hp+25);}
+let msgTimer;function say(t){const m=$('msg');m.textContent=t;m.classList.add('show');clearTimeout(msgTimer);msgTimer=setTimeout(()=>m.classList.remove('show'),1800)}
+
+const cam=()=>({x:P.x-W/2,y:P.y-H/2});
+const mw=()=>{const c=cam();return{x:mouse.x+c.x,y:mouse.y+c.y}};
+
+let actx=null;
+function audioInit(){try{if(!actx)actx=new(window.AudioContext||window.webkitAudioContext)();if(actx.state==='suspended')actx.resume()}catch(e){}}
+function noiseBuf(dur){const bs=Math.max(1,Math.floor(actx.sampleRate*dur)),buf=actx.createBuffer(1,bs,actx.sampleRate),d=buf.getChannelData(0);for(let i=0;i<bs;i++)d[i]=Math.random()*2-1;return buf}
+function sfx(type){
+  if(!actx)return;const t=actx.currentTime;
+  if(type==='gun'){
+    const n=actx.createBufferSource();n.buffer=noiseBuf(.14);
+    const bp=actx.createBiquadFilter();bp.type='bandpass';bp.Q.value=1.1;bp.frequency.setValueAtTime(2600,t);bp.frequency.exponentialRampToValueAtTime(500,t+.1);
+    const ng=actx.createGain();ng.gain.setValueAtTime(.32,t);ng.gain.exponentialRampToValueAtTime(.001,t+.12);
+    n.connect(bp);bp.connect(ng);ng.connect(actx.destination);n.start(t);
+    const o=actx.createOscillator(),g=actx.createGain();o.type='sine';o.frequency.setValueAtTime(150,t);o.frequency.exponentialRampToValueAtTime(42,t+.13);
+    g.gain.setValueAtTime(.3,t);g.gain.exponentialRampToValueAtTime(.001,t+.16);
+    o.connect(g);g.connect(actx.destination);o.start(t);o.stop(t+.17);
+  }
+  else if(type==='launch'){
+    const n=actx.createBufferSource();n.buffer=noiseBuf(.42);
+    const bp=actx.createBiquadFilter();bp.type='bandpass';bp.Q.value=.8;bp.frequency.setValueAtTime(280,t);bp.frequency.exponentialRampToValueAtTime(2400,t+.36);
+    const ng=actx.createGain();ng.gain.setValueAtTime(.001,t);ng.gain.linearRampToValueAtTime(.2,t+.09);ng.gain.exponentialRampToValueAtTime(.001,t+.42);
+    n.connect(bp);bp.connect(ng);ng.connect(actx.destination);n.start(t);
+    const o=actx.createOscillator(),g=actx.createGain();o.type='sawtooth';o.frequency.setValueAtTime(85,t);o.frequency.exponentialRampToValueAtTime(360,t+.36);
+    g.gain.setValueAtTime(.045,t);g.gain.exponentialRampToValueAtTime(.001,t+.4);
+    o.connect(g);g.connect(actx.destination);o.start(t);o.stop(t+.42);
+  }
+  else if(type==='hit'){
+    const n=actx.createBufferSource();n.buffer=noiseBuf(.09);
+    const hp=actx.createBiquadFilter();hp.type='highpass';hp.frequency.value=1100;
+    const ng=actx.createGain();ng.gain.setValueAtTime(.2,t);ng.gain.exponentialRampToValueAtTime(.001,t+.08);
+    n.connect(hp);hp.connect(ng);ng.connect(actx.destination);n.start(t);
+    const o=actx.createOscillator(),g=actx.createGain();o.type='triangle';o.frequency.setValueAtTime(820,t);o.frequency.exponentialRampToValueAtTime(240,t+.08);
+    g.gain.setValueAtTime(.11,t);g.gain.exponentialRampToValueAtTime(.001,t+.09);
+    o.connect(g);g.connect(actx.destination);o.start(t);o.stop(t+.1);
+  }
+  else if(type==='boom'){
+    const o=actx.createOscillator(),g=actx.createGain();o.type='sine';o.frequency.setValueAtTime(92,t);o.frequency.exponentialRampToValueAtTime(22,t+.7);
+    g.gain.setValueAtTime(.4,t);g.gain.exponentialRampToValueAtTime(.001,t+.75);
+    o.connect(g);g.connect(actx.destination);o.start(t);o.stop(t+.76);
+    const n=actx.createBufferSource();n.buffer=noiseBuf(.9);
+    const lp=actx.createBiquadFilter();lp.type='lowpass';lp.frequency.setValueAtTime(4200,t);lp.frequency.exponentialRampToValueAtTime(110,t+.8);
+    const ng=actx.createGain();ng.gain.setValueAtTime(.3,t);ng.gain.exponentialRampToValueAtTime(.001,t+.85);
+    n.connect(lp);lp.connect(ng);ng.connect(actx.destination);n.start(t);
+    const n2=actx.createBufferSource();n2.buffer=noiseBuf(.35);
+    const bp2=actx.createBiquadFilter();bp2.type='bandpass';bp2.frequency.value=1700;bp2.Q.value=.7;
+    const ng2=actx.createGain();ng2.gain.setValueAtTime(.001,t+.11);ng2.gain.linearRampToValueAtTime(.13,t+.14);ng2.gain.exponentialRampToValueAtTime(.001,t+.4);
+    n2.connect(bp2);bp2.connect(ng2);ng2.connect(actx.destination);n2.start(t+.1);
+  }
+  else if(type==='ping'){
+    for(let i=0;i<3;i++){const dl=i*.55,amp=.14*Math.pow(.55,i);
+      const o=actx.createOscillator(),g=actx.createGain();o.type='sine';o.frequency.setValueAtTime(1150,t+dl);
+      g.gain.setValueAtTime(amp,t+dl);g.gain.exponentialRampToValueAtTime(.001,t+dl+.9);
+      o.connect(g);g.connect(actx.destination);o.start(t+dl);o.stop(t+dl+.95);
+    }
+  }
+  else if(type==='heal'){
+    [[520,0],[780,.09],[1040,.18]].forEach(([freq,dl])=>{
+      const o=actx.createOscillator(),g=actx.createGain();o.type='sine';o.frequency.setValueAtTime(freq,t+dl);
+      g.gain.setValueAtTime(.09,t+dl);g.gain.exponentialRampToValueAtTime(.001,t+dl+.22);
+      o.connect(g);g.connect(actx.destination);o.start(t+dl);o.stop(t+dl+.24);
+    });
+  }
+}
+function volley(s,tx,ty,o,n,base,k,dmg,tref){
+  if(o==='p'){sfx('gun');P.shots+=n}
+  const dx=tx-s.x,dy=ty-s.y;let d=Math.hypot(dx,dy)||1;
+  if(d>RANGE){tx=s.x+dx/d*RANGE;ty=s.y+dy/d*RANGE;d=RANGE}
+  const sp=base+d*k;
+  for(let i=0;i<n;i++){const r=Math.random()*sp,a=Math.random()*6.283;
+    shells.push({x:s.x+Math.cos(s.a)*12,y:s.y+Math.sin(s.a)*12,tx:tx+Math.cos(a)*r,ty:ty+Math.sin(a)*r,o,dmg,tref})}
+}
+function findLock(tx,ty,radius){let best=null,bd=radius;for(const e of enemies){const d=Math.hypot(e.x-tx,e.y-ty);if(d<bd){bd=d;best=e}}return best}
+function fireMissile(s,tx,ty,o,target){
+  if(o==='p'){sfx('launch');P.shots++}
+  const dx=tx-s.x,dy=ty-s.y;let d=Math.hypot(dx,dy)||1;
+  if(d>MRANGE){tx=s.x+dx/d*MRANGE;ty=s.y+dy/d*MRANGE}
+  const dm=o==='p'?P.mods.dmg:1;
+  missiles.push({x:s.x+Math.cos(s.a)*14,y:s.y+Math.sin(s.a)*14,tx,ty,o,a:s.a,speed:MSH,dmg:MDMG*dm,kind:'missile',target:target||null,blast:MBLAST});
+  boom(s.x,s.y,'wake',.5)
+}
+function fireTomahawk(s,target){
+  sfx('launch');P.shots++;
+  missiles.push({x:s.x+Math.cos(s.a)*14,y:s.y+Math.sin(s.a)*14,tx:target.x,ty:target.y,o:'p',a:s.a,speed:TOM_SPEED,dmg:TOM_DMG*P.mods.dmg,kind:'tomahawk',target,blast:TOM_BLAST});
+  boom(s.x,s.y,'wake',.7);
+}
+function fireTorpedo(s,tx,ty,o,target){
+  if(o==='p'){sfx('launch');P.shots++}
+  const dx=tx-s.x,dy=ty-s.y;let d=Math.hypot(dx,dy)||1;
+  if(d>TRANGE){tx=s.x+dx/d*TRANGE;ty=s.y+dy/d*TRANGE}
+  const dm=o==='p'?P.mods.dmg:1;
+  missiles.push({x:s.x+Math.cos(s.a)*14,y:s.y+Math.sin(s.a)*14,tx,ty,o,a:s.a,speed:TSH,dmg:TDMG*dm,kind:'torpedo',target:target||null,blast:TBLAST});
+  boom(s.x,s.y,'wake',.5)
+}
+function boom(x,y,k,d){fx.push({k,x,y,t:0,d})}
+function explode(x,y,o,land,dmg,radius,tref){
+  radius=radius||36;
+  boom(x,y,'splash',.6);if(land)return;
+  if(o==='p'){let hitAny=false,sunkAny=false;
+    for(const e of enemies){if(Math.hypot(e.x-x,e.y-y)<=radius){const died=dealDamage(e,dmg,x,y);hitAny=true;if(died)sunkAny=true}}
+    if(hitAny){sfx('hit');P.hits++}
+    if(!mpMode){
+      enemies=enemies.filter(e=>e.hp>0);
+      if(sunkAny)sfx('boom');
+      checkWaveClear();
+    }
+  }
+  else{
+    const target=tref||P;
+    const cc=CLASS[P.cls];if(target===P&&cc.sub&&P.deep)return;
+    if(Math.hypot(target.x-x,target.y-y)<=radius){
+      target.hp-=dmg;boom(x,y,'hit',.4);sfx('hit');
+      if(target===P){shake=Math.max(shake,dmg);if(P.hp<=0){P.hp=0;boom(P.x,P.y,'boom',.9);sfx('boom');over()}}
+      else if(target.hp<=0){P.escorts=P.escorts.filter(e=>e!==target);boom(target.x,target.y,'boom',.9);sfx('boom');say('Escort lost!')}
+    }
+  }
+}
+function wake(s,dt){s.wk-=dt;if(s.wk<=0&&Math.abs(s.v)>10){boom(s.x-Math.cos(s.a)*22,s.y-Math.sin(s.a)*22,'wake',1.6);s.wk=.08}}
+function launchPlane(target,dmg){sfx('launch');P.shots++;P.planes.push({x:P.x,y:P.y,a:P.a,target,dmg:dmg*P.mods.dmg,state:'out'})}
+function heliStrike(manual){
+  const pool=(manual&&manual.length?manual:enemies.map(e=>({e,d:Math.hypot(e.x-P.x,e.y-P.y)})).sort((a,b)=>a.d-b.d).slice(0,HELI_TARGETS).map(x=>x.e));
+  if(!pool.length){say('No target for helicopter');return}
+  sfx('launch');
+  say(pool.length>1?'Helicopter struck '+pool.length+' targets!':'Helicopter strike!');
+  let sunk=false;const dmg=HELI_DMG*P.mods.dmg;
+  for(const best of pool){
+    boom(best.x,best.y,'lock',.5);
+    const died=dealDamage(best,dmg,best.x,best.y);boom(best.x,best.y,'splash',.5);
+    if(died)sunk=true;
+  }
+  sfx('hit');if(sunk)sfx('boom');
+  if(!mpMode){enemies=enemies.filter(e=>e.hp>0);checkWaveClear();}
+}
+
+function airPoolOf(){return Math.max(1,CLASS[P.cls].airPool-(P.deckDmg||0))}
+function update(dt){
+  const cc=CLASS[P.cls];
+  if(mpMode){
+    enemies=Object.values(peerMirror).filter(m=>m.hp>0);
+    P.presenceT-=dt;
+    if(P.presenceT<=0&&sbChannel){P.presenceT=.1;sbChannel.track({x:P.x,y:P.y,a:P.a,hp:P.hp,maxhp:P.maxhp,cls:P.cls,kills}).catch(()=>{});syncPeerMirror()}
+  }
+  P.selected=P.selected.filter(e=>enemies.includes(e)&&e.hp>0);
+  P.tomSelected=P.tomSelected.filter(e=>enemies.includes(e)&&e.hp>0);
+  const aim=()=>(cc.lock&&P.selected.length)?{x:P.selected[0].x,y:P.selected[0].y}:mw();
+  if(cc.sub){
+    if(P.deep){P.battery=Math.max(0,P.battery-BATTERY_DRAIN*dt);if(P.battery<=0){P.deep=false;P.dive=true;say('Battery depleted — snorkeling')}}
+    else{P.battery=Math.min(BATTERY_MAX,P.battery+BATTERY_CHARGE*dt)}
+    P.sonarCd-=dt;P.sonarT-=dt;P.tomCd-=dt;
+  }
+  if(cc.isCarrier){
+    P.scoutCd-=dt;P.scoutT-=dt;
+    const hf=P.hp/P.maxhp;
+    if(hf<=.5&&P.deckDmg<1){P.deckDmg=1;say('Flight deck damaged — one less aircraft slot!')}
+    if(hf<=.25&&P.deckDmg<2){P.deckDmg=2;say('Flight deck critical — aircraft capacity reduced further!')}
+  }
+  const spdMul=P.deep?DEEP_MUL:(P.dive?DIVE_MUL:1);
+  const tgtSpeed=SPEEDS[P.th]*spdMul*P.mods.speed;
+  P.v+=(tgtSpeed-P.v)*Math.min(1,dt*.7);
+  const turn=((keys.d||keys.arrowright)?1:0)-((keys.a||keys.arrowleft)?1:0);
+  P.a+=turn*cc.turn*Math.min(1,(Math.abs(P.v)+30)/100)*dt*(P.v<-5?-1:1);
+  P.x+=Math.cos(P.a)*P.v*dt;P.y+=Math.sin(P.a)*P.v*dt;pushOut(P,24);
+  P.rl-=dt;P.mrl-=dt;P.trl-=dt;P.hrl-=dt;P.dcrl-=dt;wake(P,dt);
+  if(P.deep){P.hp=Math.min(P.maxhp,P.hp+DEEP_REGEN*dt)}
+  if(keys.r&&P.dcrl<=0){P.hp=Math.min(P.maxhp,P.hp+DC_HEAL);P.dcrl=DC_CD;sfx('heal');say('Damage control!')}
+  if(!P.deep){
+    if(cc.weapon==='guns'&&(mdown||keys[' '])&&P.rl<=0){const m=aim();volley(P,m.x,m.y,'p',cc.shells,6,.035,cc.shellDmg*P.mods.dmg);P.rl=cc.reload*P.mods.reload}
+    if(cc.weapon==='torpedo'&&(mdown||keys[' '])&&P.rl<=0){const tgt=P.selected[0]||null;const m=tgt?{x:tgt.x,y:tgt.y}:mw();fireTorpedo(P,m.x,m.y,'p',tgt);P.rl=cc.reload*P.mods.reload}
+    if(cc.weapon==='air'&&(mdown||keys[' '])&&P.rl<=0){
+      const t=P.selected[0]||findLock(P.x,P.y,Infinity);
+      if(!t)say('No target for aircraft');
+      else if(P.planes.length>=airPoolOf())say('No aircraft ready');
+      else{launchPlane(t,cc.airDmg);say('Sortie launched — '+(airPoolOf()-P.planes.length)+' aircraft left on deck')}
+      P.rl=cc.reload*P.mods.reload;
+    }
+    if(cc.missiles&&keys.e&&P.mrl<=0){
+      const m=mw();
+      if(P.selected.length){for(const t of P.selected.slice(0,MISSILE_MAX))fireMissile(P,t.x,t.y,'p',t);say('Missiles away!')}
+      else fireMissile(P,m.x,m.y,'p',null);
+      P.mrl=(cc.mReload||MRELOAD)*P.mods.reload;
+    }
+    if(cc.torps&&keys.t&&P.trl<=0){const tgt=P.selected[0]||null;const m=tgt?{x:tgt.x,y:tgt.y}:mw();fireTorpedo(P,m.x,m.y,'p',tgt);P.trl=CTRELOAD*P.mods.reload}
+    if(cc.heli&&keys.h&&P.hrl<=0){
+      if(cc.isCarrier){
+        const t0=P.selected.length?P.selected.slice(0,HELI_TARGETS):(findLock(P.x,P.y,Infinity)?[findLock(P.x,P.y,Infinity)]:[]);
+        let n=0;for(const t of t0){if(P.planes.length<airPoolOf()){launchPlane(t,HELI_DMG);n++}}
+        if(n){say('Strike package launched: '+n+' aircraft');P.hrl=HELI_CD*P.mods.reload}else say('No aircraft ready');
+      }else{heliStrike(P.selected.length?P.selected.slice(0,HELI_TARGETS):null);P.hrl=HELI_CD*P.mods.reload}
+    }
+  }
+  for(const es of P.escorts){
+    const fx2=P.x+Math.cos(P.a)*es.formX-Math.sin(P.a)*es.formY,fy2=P.y+Math.sin(P.a)*es.formX+Math.cos(P.a)*es.formY;
+    const ddx=fx2-es.x,ddy=fy2-es.y,dd=Math.hypot(ddx,ddy)||1;
+    const want=dd>14?Math.atan2(ddy,ddx):es.a;
+    es.a+=clamp(norm(want-es.a),-1.6*dt,1.6*dt);
+    es.v+=((dd>14?110:0)-es.v)*Math.min(1,dt*1.2);
+    es.x+=Math.cos(es.a)*es.v*dt;es.y+=Math.sin(es.a)*es.v*dt;pushOut(es,20);wake(es,dt);
+    es.rl-=dt;
+    const et=findLock(es.x,es.y,700);
+    if(et&&es.rl<=0){volley(es,et.x,et.y,'p',2,10,.05,14*P.mods.dmg);es.rl=1.8+Math.random()*.8}
+  }
+  for(const e of enemies){
+    if(mpMode)continue;
+    const dx=P.x-e.x,dy=P.y-e.y,d=Math.hypot(dx,dy),ang=Math.atan2(dy,dx);
+    let want=d>560?ang:d<380?ang+Math.PI:ang+Math.PI/2*e.dir;
+    for(const i of islands){if(Math.hypot(e.x-i.x,e.y-i.y)<i.r+120)want=Math.atan2(e.y-i.y,e.x-i.x)}
+    e.a+=clamp(norm(want-e.a),-.7*dt,.7*dt);
+    e.x+=Math.cos(e.a)*e.v*dt;e.y+=Math.sin(e.a)*e.v*dt;pushOut(e,24);wake(e,dt);
+    e.rl-=dt;
+    if(cc.sub){
+      const spotRange=P.deep?DEEP_SPOT:(P.dive?DIVE_SPOT:700);
+      if(d<spotRange){
+        if(e.contactT<=0){
+          for(const e2 of enemies){if(e2!==e){const dd=Math.hypot(e2.x-e.x,e2.y-e.y);if(dd<ALERT_RADIUS){e2.contactT=Math.max(e2.contactT,ALERT_TIME);e2.lastX=P.x;e2.lastY=P.y;e2.lastVx=Math.cos(P.a)*P.v;e2.lastVy=Math.sin(P.a)*P.v}}}
+        }
+        e.contactT=CONTACT_TIME;e.lastX=P.x;e.lastY=P.y;e.lastVx=Math.cos(P.a)*P.v;e.lastVy=Math.sin(P.a)*P.v;
+      }
+      if(P.decoys.length&&e.contactT>0){
+        let nd=P.decoys[0],nb=Math.hypot(nd.x-e.x,nd.y-e.y);
+        for(const dc of P.decoys){const db=Math.hypot(dc.x-e.x,dc.y-e.y);if(db<nb){nb=db;nd=dc}}
+        e.lastX=nd.x;e.lastY=nd.y;e.lastVx=0;e.lastVy=0;
+      }
+      if(e.contactT>0){
+        e.contactT-=dt;
+        if(e.rl<=0){
+          const age=CONTACT_TIME-Math.max(0,e.contactT);
+          const px=e.lastX+e.lastVx*age,py=e.lastY+e.lastVy*age;
+          volley(e,px,py,'e',1,DC_BASE+age*22,DC_K,DC_DMG);
+          e.rl=2.6+Math.random()*1.4;
+        }
+      }
+    }else if(e.rl<=0&&d<700){
+      let best=P,bd=d;
+      for(const es of P.escorts){const dd=Math.hypot(es.x-e.x,es.y-e.y);if(dd<bd){bd=dd;best=es}}
+      const T=bd/SH,bvx=best===P?Math.cos(P.a)*P.v:Math.cos(best.a)*best.v,bvy=best===P?Math.sin(P.a)*P.v:Math.sin(best.a)*best.v;
+      const px=best.x+bvx*T*.7,py=best.y+bvy*T*.7;
+      if(e.boss){volley(e,px,py,'e',3,16,.05,22,best);e.rl=1.7+Math.random()*.7}
+      else{volley(e,px,py,'e',1,20,.06,e.dmg||16,best);e.rl=3.2+Math.random()*1.5}
+    }
+  }
+  if(cc.sub){P.decoyCd-=dt;for(let i=P.decoys.length-1;i>=0;i--){P.decoys[i].t-=dt;if(P.decoys[i].t<=0)P.decoys.splice(i,1)}}
+  for(let i=shells.length-1;i>=0;i--){const s=shells[i],dx=s.tx-s.x,dy=s.ty-s.y,d=Math.hypot(dx,dy),step=SH*dt;
+    if(d<=step){explode(s.tx,s.ty,s.o,false,s.dmg,undefined,s.tref);shells.splice(i,1);continue}
+    s.x+=dx/d*step;s.y+=dy/d*step;
+    if(islands.some(k=>Math.hypot(s.x-k.x,s.y-k.y)<k.r*.8)){explode(s.x,s.y,s.o,true);shells.splice(i,1)}}
+  for(let i=missiles.length-1;i>=0;i--){const s=missiles[i];
+    if(s.kind==='torpedo'){
+      let dxx,dyy;
+      if(s.target&&enemies.includes(s.target)&&s.target.hp>0){dxx=s.target.x-s.x;dyy=s.target.y-s.y;s.tx=s.target.x;s.ty=s.target.y}
+      else{s.target=null;dxx=s.tx-s.x;dyy=s.ty-s.y}
+      const desired=Math.atan2(dyy,dxx);
+      s.a+=clamp(norm(desired-s.a),-TORP_TURN*dt,TORP_TURN*dt);
+      const step=s.speed*dt;s.x+=Math.cos(s.a)*step;s.y+=Math.sin(s.a)*step;
+      const hitD=Math.hypot(s.tx-s.x,s.ty-s.y);
+      if(hitD<=Math.max(step,26)){explode(s.x,s.y,s.o,false,s.dmg,s.blast);missiles.splice(i,1);continue}
+      if(islands.some(k=>Math.hypot(s.x-k.x,s.y-k.y)<k.r*.8)){explode(s.x,s.y,s.o,true);missiles.splice(i,1);continue}
+    }else{
+      if(s.target){if(enemies.includes(s.target)&&s.target.hp>0){s.tx=s.target.x;s.ty=s.target.y}else s.target=null}
+      const dx=s.tx-s.x,dy=s.ty-s.y,d=Math.hypot(dx,dy),step=s.speed*dt;
+      if(d<=step){explode(s.tx,s.ty,s.o,false,s.dmg,s.blast);missiles.splice(i,1);continue}
+      s.a=Math.atan2(dy,dx);s.x+=dx/d*step;s.y+=dy/d*step;
+      if(islands.some(k=>Math.hypot(s.x-k.x,s.y-k.y)<k.r*.8)){explode(s.x,s.y,s.o,true);missiles.splice(i,1)}
+    }
+  }
+  for(let i=P.planes.length-1;i>=0;i--){const pl=P.planes[i];
+    if(pl.state==='out'){
+      if(pl.target&&enemies.includes(pl.target)&&pl.target.hp>0){
+        const dx=pl.target.x-pl.x,dy=pl.target.y-pl.y,d=Math.hypot(dx,dy)||1;pl.a=Math.atan2(dy,dx);const step=PLANE_SPEED*dt;
+        if(d<=step){
+        const died=dealDamage(pl.target,pl.dmg,pl.target.x,pl.target.y);boom(pl.target.x,pl.target.y,'splash',.4);
+          if(died&&!mpMode){enemies=enemies.filter(e=>e!==pl.target);checkWaveClear()}
+          pl.state='return';pl.target=null;
+        }else{pl.x+=dx/d*step;pl.y+=dy/d*step}
+      }else{pl.state='return';pl.target=null}
+    }
+    if(pl.state==='return'){
+      const dx=P.x-pl.x,dy=P.y-pl.y,d=Math.hypot(dx,dy)||1;pl.a=Math.atan2(dy,dx);const step=PLANE_SPEED*1.1*dt;
+      if(d<=step){P.planes.splice(i,1);continue}
+      pl.x+=dx/d*step;pl.y+=dy/d*step;
+    }
+  }
+}
+function getBest(){try{return parseInt(localStorage.getItem('irontide_best')||'0',10)||0}catch(e){return 0}}
+function setBest(w){try{if(w>getBest())localStorage.setItem('irontide_best',String(w))}catch(e){}}
+function over(){st='over';const prevBest=getBest();setBest(wave);const acc=P.shots?Math.round(100*P.hits/P.shots):0;
+  $('ttl').textContent='Ship lost';
+  let unlocked=null;
+  document.querySelectorAll('.pick').forEach(b=>{const need=parseInt(b.dataset.unlock,10)||0;if(need>prevBest&&need<=wave)unlocked=b.querySelector('b').textContent});
+  refreshShipLocks();
+  $('sub').textContent='Rank: '+P.rank+'. You sank '+kills+(kills===1?' ship':' ships')+' and reached wave '+wave+' ('+acc+'% hit rate). Final score: '+score+'. Best wave: '+getBest()+'.'+(unlocked?' New ship unlocked: '+unlocked+'!':'');
+  $('go').textContent='Sail again — '+CLASS[chosenClass].label;$('go').disabled=false;$('go').style.opacity=1;$('panel').hidden=false;$('go').focus()}
+
+function drawShip(s,col,aim,scale,cls){
+  scale=scale||1;const sub=cls&&cls.sub,cruiser=cls&&cls.turrets>=4,modern=cls&&cls.modern,carrier=cls&&cls.isCarrier;
+  ctx.save();ctx.translate(s.x,s.y);ctx.rotate(s.a);ctx.scale(scale,scale);
+  ctx.fillStyle=col;ctx.strokeStyle='#14232b';ctx.lineWidth=2/scale;
+  if(sub){
+    ctx.beginPath();ctx.moveTo(28,0);ctx.lineTo(18,-6);ctx.lineTo(-20,-6);ctx.lineTo(-28,0);ctx.lineTo(-20,6);ctx.lineTo(18,6);ctx.closePath();ctx.fill();ctx.stroke();
+    ctx.fillStyle='#1b2a28';ctx.fillRect(-4,-9,16,8);ctx.strokeRect(-4,-9,16,8);
+  }else if(carrier){
+    ctx.beginPath();ctx.moveTo(44,0);ctx.lineTo(34,-16);ctx.lineTo(-40,-16);ctx.lineTo(-48,0);ctx.lineTo(-40,16);ctx.lineTo(34,16);ctx.closePath();ctx.fill();ctx.stroke();
+    ctx.strokeStyle='#14232b55';ctx.lineWidth=1.2/scale;
+    for(let lx=-34;lx<36;lx+=11){ctx.beginPath();ctx.moveTo(lx,-14);ctx.lineTo(lx,14);ctx.stroke()}
+    ctx.fillStyle='#6b6456';ctx.fillRect(-44,-13,10,26);ctx.strokeRect(-44,-13,10,26);
+    ctx.fillStyle='#14232b';ctx.fillRect(-41,-20,3,9);
+  }else if(modern){
+    ctx.beginPath();ctx.moveTo(30,0);ctx.lineTo(20,-6.5);ctx.lineTo(-26,-6.5);ctx.lineTo(-30,-3);ctx.lineTo(-30,3);ctx.lineTo(-26,6.5);ctx.lineTo(20,6.5);ctx.closePath();ctx.fill();ctx.stroke();
+    ctx.fillStyle='#8f8a72';ctx.beginPath();ctx.arc(20,0,3.6,0,6.283);ctx.fill();ctx.strokeStyle='#14232b';ctx.lineWidth=1/scale;ctx.stroke();
+    ctx.fillStyle='#14232b';ctx.fillRect(2,-6,6,12);
+    ctx.fillStyle='#14232b';ctx.fillRect(-4,-14,1.4,10);
+    ctx.fillStyle='#7fa3b0';ctx.beginPath();ctx.arc(-4,-14,2.6,0,6.283);ctx.fill();
+    ctx.fillStyle='#4f5a58';for(let gx=-24;gx<-8;gx+=5){for(let gy=-4;gy<5;gy+=4){ctx.fillRect(gx,gy,3,3)}}
+  }else if(cruiser){
+    ctx.beginPath();ctx.moveTo(34,0);ctx.lineTo(26,-7);ctx.lineTo(-30,-7);ctx.lineTo(-36,-3);ctx.lineTo(-36,3);ctx.lineTo(-30,7);ctx.lineTo(26,7);ctx.closePath();ctx.fill();ctx.stroke();
+    ctx.fillStyle='#8f8a72';ctx.fillRect(16,-4,8,8);ctx.strokeRect(16,-4,8,8);
+    ctx.fillStyle='#14232b';ctx.fillRect(-2,-9,7,18);ctx.fillRect(-14,-8,6,16);
+    ctx.fillStyle='#8f8a72';ctx.fillRect(-26,-4,7,8);ctx.strokeRect(-26,-4,7,8);
+    ctx.beginPath();ctx.arc(22,0,3.4,0,6.283);ctx.fill();ctx.stroke();
+    ctx.beginPath();ctx.arc(-32,0,3.4,0,6.283);ctx.fill();ctx.stroke();
+    ctx.fillStyle='#14232b';ctx.fillRect(-10,-20,1.2,12);
+    ctx.fillStyle='#d1432f';ctx.fillRect(-9,-20,9,3.6);
+    ctx.fillStyle='#f5f1e4';ctx.fillRect(-9,-16.4,9,3.6);
+    ctx.fillStyle='#d1432f';ctx.fillRect(-9,-12.8,9,3.6);
+    ctx.strokeStyle='#14232b';ctx.lineWidth=.6/scale;ctx.strokeRect(-9,-20,9,9.2);
+  }else{
+    ctx.beginPath();ctx.moveTo(26,0);ctx.lineTo(12,-8);ctx.lineTo(-22,-8);ctx.lineTo(-26,-5);ctx.lineTo(-26,5);ctx.lineTo(-22,8);ctx.lineTo(12,8);ctx.closePath();ctx.fill();ctx.stroke();
+    ctx.fillStyle='#14232b55';ctx.fillRect(-6,-4,10,8);
+  }
+  ctx.restore();
+  if(!sub&&!carrier){
+    ctx.save();ctx.translate(s.x,s.y);ctx.rotate(aim);ctx.strokeStyle='#14232b';ctx.lineWidth=2.5;
+    for(const ox of[10*scale,-12*scale]){const px=Math.cos(s.a)*ox,py=Math.sin(s.a)*ox;ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(px+15,py);ctx.stroke();ctx.fillStyle=col;ctx.beginPath();ctx.arc(px,py,5,0,6.283);ctx.fill();ctx.stroke()}
+    ctx.restore();
+  }
+}
+function bar(x,y,f,col){ctx.fillStyle='#0008';ctx.fillRect(x-16,y,32,4);ctx.fillStyle=col;ctx.fillRect(x-16,y,32*clamp(f,0,1),4)}
+
+function draw(){
+  const c=cam();let sx=0,sy=0;if(shake>.2){sx=(Math.random()-.5)*shake;sy=(Math.random()-.5)*shake;shake*=.9}
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.fillStyle='#0e2a3a';ctx.fillRect(0,0,W,H);
+  ctx.save();ctx.globalAlpha=.045;ctx.strokeStyle='#bfe0ea';ctx.lineWidth=16;
+  for(let i=-3;i<12;i++){const off=((waterT*34+i*230)%(W+500))-250;ctx.beginPath();ctx.moveTo(off,-60);ctx.lineTo(off+420,H+60);ctx.stroke()}
+  ctx.restore();
+  ctx.translate(-c.x+sx,-c.y+sy);
+  ctx.strokeStyle='#ffffff0d';ctx.lineWidth=1;ctx.beginPath();
+  for(let x=Math.floor(c.x/200)*200;x<c.x+W+200;x+=200){ctx.moveTo(x,c.y-10);ctx.lineTo(x,c.y+H+10)}
+  for(let y=Math.floor(c.y/200)*200;y<c.y+H+200;y+=200){ctx.moveTo(c.x-10,y);ctx.lineTo(c.x+W+10,y)}
+  ctx.stroke();
+  ctx.setLineDash([10,10]);ctx.strokeStyle='#c9a24b';ctx.lineWidth=2;ctx.strokeRect(0,0,WORLD,WORLD);ctx.setLineDash([]);
+  for(const i of islands){
+    ctx.fillStyle='#174c5c';ctx.beginPath();ctx.arc(i.x,i.y,i.r+36,0,6.283);ctx.fill();
+    ctx.fillStyle='#b9a874';ctx.beginPath();ctx.arc(i.x,i.y,i.r,0,6.283);ctx.fill();
+    ctx.fillStyle='#7d8f5a';ctx.beginPath();ctx.arc(i.x+i.r*.1,i.y-i.r*.05,i.r*.6,0,6.283);ctx.fill()}
+  for(const f of fx){const p=f.t/f.d;ctx.globalAlpha=(1-p)*(f.k==='wake'?.35:.9);
+    if(f.k==='wake'){ctx.fillStyle='#cfe8ee';ctx.beginPath();ctx.arc(f.x,f.y,3+f.t*3,0,6.283);ctx.fill()}
+    else if(f.k==='splash'){ctx.strokeStyle='#cfe8ee';ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(f.x,f.y,6+p*24,0,6.283);ctx.stroke()}
+    else if(f.k==='lock'){ctx.strokeStyle='#e8552f';ctx.lineWidth=2;ctx.beginPath();ctx.arc(f.x,f.y,30-p*10,0,6.283);ctx.stroke();ctx.beginPath();ctx.moveTo(f.x-38,f.y);ctx.lineTo(f.x-20,f.y);ctx.moveTo(f.x+20,f.y);ctx.lineTo(f.x+38,f.y);ctx.moveTo(f.x,f.y-38);ctx.lineTo(f.x,f.y-20);ctx.moveTo(f.x,f.y+20);ctx.lineTo(f.x,f.y+38);ctx.stroke()}
+    else if(f.k==='score'){ctx.fillStyle='#f5f1e4';ctx.font='700 15px "Palatino Linotype",Palatino,Georgia,serif';ctx.textAlign='center';ctx.fillText('+'+f.val,f.x,f.y-14-p*22)}
+    else{ctx.fillStyle=f.k==='hit'?'#ffb347':'#e8552f';ctx.beginPath();ctx.arc(f.x,f.y,f.k==='hit'?8+p*18:10+p*50,0,6.283);ctx.fill()}}
+  ctx.globalAlpha=1;
+  for(const dc of P.decoys){const pp=(DECOY_DUR-dc.t)%1.2/1.2;ctx.strokeStyle='#8aa8c4';ctx.lineWidth=2;ctx.globalAlpha=.7*(1-pp);ctx.beginPath();ctx.arc(dc.x,dc.y,10+pp*34,0,6.283);ctx.stroke();
+    ctx.globalAlpha=1;ctx.fillStyle='#8aa8c4';ctx.beginPath();ctx.arc(dc.x,dc.y,4,0,6.283);ctx.fill()}
+  ctx.globalAlpha=1;
+  const m=mw();
+  for(const es of P.escorts){ctx.save();ctx.globalAlpha=.25;ctx.fillStyle='#000';ctx.beginPath();ctx.ellipse(es.x+4,es.y+4,19,9,es.a,0,6.283);ctx.fill();ctx.restore();
+    drawShip(es,'#7fa3b0',es.a);bar(es.x,es.y-20,es.hp/es.maxhp,'#7fa3b0')}
+  for(const e of enemies){ctx.save();ctx.globalAlpha=.28;ctx.fillStyle='#000';ctx.beginPath();ctx.ellipse(e.x+5,e.y+5,e.boss?32:24,e.boss?15:11,e.a,0,6.283);ctx.fill();ctx.restore();
+    if(e.peerId){const ec=CLASS[e.cls]||CLASS.destroyer;const esc=e.cls==='cruiser'?1.3:e.cls==='submarine'?1.05:e.cls==='carrier'?1.4:1;
+      drawShip(e,ec.hull,Math.atan2(P.y-e.y,P.x-e.x),esc,ec);bar(e.x,e.y-26*esc,e.hp/e.maxhp,'#d1432f')}
+    else{drawShip(e,e.boss?'#5a241c':'#8a3b2f',Math.atan2(P.y-e.y,P.x-e.x),e.boss?1.45:1);bar(e.x,e.y-(e.boss?32:24),e.hp/e.maxhp,e.boss?'#ffb347':'#d1432f')}}
+  if(P.hp>0){const psc=P.cls==='cruiser'?1.3:P.cls==='submarine'?1.05:P.cls==='carrier'?1.4:1;
+    ctx.save();ctx.globalAlpha=.28*(CLASS[P.cls].sub?(P.deep?.22:(P.dive?.5:1)):1);ctx.fillStyle='#000';ctx.beginPath();ctx.ellipse(P.x+6,P.y+6,26*psc,12*psc,P.a,0,6.283);ctx.fill();ctx.restore()}
+  ctx.globalAlpha=CLASS[P.cls].sub?(P.deep?.22:(P.dive?.5:1)):1;
+  if(P.hp>0)drawShip(P,CLASS[P.cls].hull,Math.atan2(m.y-P.y,m.x-P.x),P.cls==='cruiser'?1.3:P.cls==='submarine'?1.05:P.cls==='carrier'?1.4:1,CLASS[P.cls]);
+  ctx.globalAlpha=1;
+  for(const s of shells){const a=Math.atan2(s.ty-s.y,s.tx-s.x);ctx.strokeStyle=s.o==='p'?'#f4e7b0':'#ffb347';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(s.x,s.y);ctx.lineTo(s.x-Math.cos(a)*9,s.y-Math.sin(a)*9);ctx.stroke()}
+  for(const s of missiles){ctx.save();ctx.translate(s.x,s.y);ctx.rotate(s.a);
+    const torp=s.kind==='torpedo',tom=s.kind==='tomahawk';
+    ctx.fillStyle=torp?(s.o==='p'?'#9fb0b8':'#ff8a5c'):tom?'#e8552f':(s.o==='p'?'#e8e2cf':'#ff8a5c');ctx.strokeStyle='#14232b';ctx.lineWidth=1.5;
+    const len=tom?1.5:1;
+    ctx.beginPath();ctx.moveTo(14*len,0);ctx.lineTo(4*len,-3.5);ctx.lineTo(-10*len,-3.5);ctx.lineTo(-10*len,3.5);ctx.lineTo(4*len,3.5);ctx.closePath();ctx.fill();ctx.stroke();
+    ctx.strokeStyle=torp?'#cfe8eeaa':tom?'#ffd37daa':'#ffb347aa';ctx.lineWidth=tom?3:2;ctx.beginPath();ctx.moveTo(-10*len,0);ctx.lineTo(-10*len-14-Math.random()*10,0);ctx.stroke();ctx.restore()}
+  for(const pl of P.planes){ctx.save();ctx.translate(pl.x,pl.y);ctx.rotate(pl.a);
+    ctx.fillStyle=pl.state==='out'?'#e8e2cf':'#9fb0b8';ctx.strokeStyle='#14232b';ctx.lineWidth=1.3;
+    ctx.beginPath();ctx.moveTo(10,0);ctx.lineTo(-4,-7);ctx.lineTo(-2,0);ctx.lineTo(-4,7);ctx.closePath();ctx.fill();ctx.stroke();
+    ctx.restore()}
+  if(CLASS[P.cls].sub&&P.sonarT>0){const pp=1-P.sonarT/SONAR_DUR;ctx.strokeStyle='#7fc38a'+Math.floor((1-pp)*170+30).toString(16).padStart(2,'0');ctx.lineWidth=2;ctx.beginPath();ctx.arc(P.x,P.y,pp*SONAR_ACTIVE_R,0,6.283);ctx.stroke()}
+  for(const t of P.selected){ctx.strokeStyle='#e8552f';ctx.lineWidth=2;ctx.beginPath();ctx.arc(t.x,t.y,18,0,6.283);ctx.stroke();ctx.beginPath();ctx.moveTo(t.x-26,t.y);ctx.lineTo(t.x-18,t.y);ctx.moveTo(t.x+18,t.y);ctx.lineTo(t.x+26,t.y);ctx.stroke()}
+  if(st==='play'&&!P.tomMenu){
+    const hov=findLock(m.x,m.y,CLICK_TOL+25);
+    if(hov&&!P.selected.includes(hov)){ctx.strokeStyle='#c9a24bcc';ctx.lineWidth=2;ctx.setLineDash([2,4]);ctx.beginPath();ctx.arc(hov.x,hov.y,20,0,6.283);ctx.stroke();ctx.setLineDash([])}
+  }
+  if(st==='play'&&!P.tomMenu){
+    const cc=CLASS[P.cls];
+    if(cc.lock&&P.selected.length){
+      ctx.strokeStyle='#e8552f';ctx.lineWidth=2;ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(P.x,P.y);ctx.lineTo(P.selected[0].x,P.selected[0].y);ctx.stroke();ctx.setLineDash([]);
+    }else{
+      let dx=m.x-P.x,dy=m.y-P.y,d=Math.hypot(dx,dy)||1;if(d>RANGE){dx*=RANGE/d;dy*=RANGE/d;d=RANGE}
+      ctx.strokeStyle='#c9a24b88';ctx.lineWidth=1.5;ctx.setLineDash([6,8]);ctx.beginPath();ctx.moveTo(P.x,P.y);ctx.lineTo(P.x+dx,P.y+dy);ctx.stroke();ctx.setLineDash([]);
+      ctx.beginPath();ctx.arc(P.x+dx,P.y+dy,6+d*.035,0,6.283);ctx.stroke()
+    }
+  }
+  $('hp').style.width=(P.hp/P.maxhp*100)+'%';
+  $('wlbl').textContent=CLASS[P.cls].weapon==='torpedo'?'Torpedo':CLASS[P.cls].weapon==='air'?'Aircraft':'Guns';
+  $('rl').style.width=(clamp(1-P.rl/CLASS[P.cls].reload,0,1)*100)+'%';
+  $('hp').style.background=P.hp>P.maxhp*.5?'#7fc38a':P.hp>P.maxhp*.25?'#e0b34a':'#d1432f';
+  if(CLASS[P.cls].missiles){$('mlbl').classList.add('show');$('mlwrap').classList.add('show');$('ml').style.width=(clamp(1-P.mrl/(CLASS[P.cls].mReload||MRELOAD),0,1)*100)+'%'}
+  else{$('mlbl').classList.remove('show');$('mlwrap').classList.remove('show')}
+  $('wv').textContent=mpMode?('Battle online · '+enemies.length+' other '+(enemies.length===1?'captain':'captains')):('Wave '+wave+' · '+enemies.length+(enemies.length===1?' enemy':' enemies'));
+  $('sc').textContent=score;
+  $('rk').textContent=P.rank;
+  let extra='';
+  extra+=' · Select targets: click ships ('+P.selected.length+'/'+SELECT_MAX+')';
+  if(CLASS[P.cls].missiles)extra+=' · Missile: E (homes on selection, else straight)';
+  if(CLASS[P.cls].torps)extra+=' · Torpedo tubes: T'+(P.trl>0?' ('+P.trl.toFixed(1)+'s)':'');
+  if(CLASS[P.cls].heli)extra+=' · Helicopter: H (strikes selection, else nearest)'+(P.hrl>0?' ('+P.hrl.toFixed(0)+'s)':'');
+  if(CLASS[P.cls].isCarrier){extra+=' · Aircraft ready: '+(airPoolOf()-P.planes.length)+'/'+airPoolOf();extra+=' · Scout plane: G'+(P.scoutCd>0?' ('+P.scoutCd.toFixed(0)+'s)':' ready')}
+  if(CLASS[P.cls].sub){
+    extra+=P.deep?' · Crash dive (C to surface)':P.dive?' · Snorkel (Shift to surface, C to crash dive)':' · Surfaced (Shift: snorkel, C: crash dive)';
+    extra+=' · Battery: '+P.battery.toFixed(0)+'%';
+    extra+=' · Sonar: V'+(P.sonarCd>0?' ('+P.sonarCd.toFixed(0)+'s)':' ready');
+    extra+=' · Tomahawk menu: B'+(P.tomCd>0?' ('+P.tomCd.toFixed(0)+'s)':' ready');
+    extra+=' · Decoy: X'+(P.decoyCd>0?' ('+P.decoyCd.toFixed(0)+'s)':' ready');
+    if(enemies.some(e=>e.contactT>0))extra+=' · ⚠ CONTACT — someone has you spotted';
+  }
+  extra+=' · Damage control: R'+(P.dcrl>0?' ('+P.dcrl.toFixed(0)+'s)':'');
+  $('th').textContent='Engine: '+TH[P.th]+' (W / S)'+extra;
+  if(CLASS[P.cls].radar)drawRadar();
+  if(CLASS[P.cls].sonar)drawSonar();
+  if(P.tomMenu)drawTomMenu();
+}
+function drawTomMenu(){
+  const bx=W/2,by=H/2,brad=Math.min(W,H)*0.33;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.save();
+  ctx.fillStyle='#0e2a3ad9';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#0b1a1fee';ctx.beginPath();ctx.arc(bx,by,brad+14,0,6.283);ctx.fill();
+  ctx.strokeStyle='#8aa8c4aa';ctx.lineWidth=1;
+  for(const f of[.33,.66,1]){ctx.beginPath();ctx.arc(bx,by,brad*f,0,6.283);ctx.stroke()}
+  ctx.beginPath();ctx.moveTo(bx-brad,by);ctx.lineTo(bx+brad,by);ctx.moveTo(bx,by-brad);ctx.lineTo(bx,by+brad);ctx.stroke();
+  ctx.fillStyle='#e8e2cf88';ctx.font='11px system-ui,sans-serif';ctx.textAlign='center';
+  ctx.fillText('N',bx,by-brad-6);ctx.fillText('S',bx,by+brad+15);ctx.fillText('W',bx-brad-10,by+4);ctx.fillText('E',bx+brad+10,by+4);
+  const active=P.sonarT>0,R=active?SONAR_ACTIVE_R:SONAR_PASSIVE_R;
+  ctx.save();ctx.beginPath();ctx.arc(bx,by,brad,0,6.283);ctx.clip();
+  for(const dc of P.decoys){const dx=dc.x-P.x,dy=dc.y-P.y,d=Math.hypot(dx,dy);if(d>R)continue;
+    const px=bx+dx/R*brad,py=by+dy/R*brad;ctx.strokeStyle='#8aa8c4';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(px,py,7,0,6.283);ctx.stroke()}
+  let nearest=Infinity;
+  for(const e of enemies){const dx=e.x-P.x,dy=e.y-P.y,d=Math.hypot(dx,dy);if(d>R)continue;
+    if(d<nearest)nearest=d;
+    const jitter=active?0:(d/R)*16;
+    const px=bx+dx/R*brad+(Math.random()-.5)*jitter,py=by+dy/R*brad+(Math.random()-.5)*jitter;
+    const sel=P.tomSelected.includes(e),hot=e.contactT>0;
+    if(hot){ctx.strokeStyle='#e8552f';ctx.lineWidth=1.5;ctx.globalAlpha=.5+.5*Math.sin(waterT*8);ctx.beginPath();ctx.arc(px,py,8,0,6.283);ctx.stroke();ctx.globalAlpha=1}
+    ctx.fillStyle=sel?'#e8552f':(active?'#7fc38a':'#7fc38a99');ctx.beginPath();ctx.arc(px,py,sel?6:4.5,0,6.283);ctx.fill();
+    if(sel){ctx.strokeStyle='#e8552f';ctx.lineWidth=2;ctx.beginPath();ctx.arc(px,py,11,0,6.283);ctx.stroke()}
+  }
+  ctx.restore();
+  ctx.fillStyle='#8aa8c4';ctx.beginPath();ctx.arc(bx,by,4,0,6.283);ctx.fill();
+  ctx.strokeStyle='#e8e2cf99';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(bx,by,brad+14,0,6.283);ctx.stroke();
+  ctx.fillStyle='#e8e2cfee';ctx.font='15px system-ui,sans-serif';ctx.textAlign='center';
+  ctx.fillText('TOMAHAWK TARGETING — click contacts ('+P.tomSelected.length+'/'+TOM_SELECT_MAX+')',bx,by-brad-26);
+  ctx.fillText('Press B to launch, or close with nothing selected to cancel'+(nearest<Infinity?' · nearest contact '+Math.round(nearest)+'m':''),bx,by+brad+32);
+  ctx.restore();
+}
+function drawRadar(){
+  const RR=(P.scoutT>0?SCOUT_RADAR_R:1700),cx=W-78,cy=H-78,rad=62;
+  radarSweep=(radarSweep+0.035)%6.283;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.save();
+  ctx.fillStyle='#0b1f17cc';ctx.beginPath();ctx.arc(cx,cy,rad+8,0,6.283);ctx.fill();
+  ctx.strokeStyle='#7fc38a66';ctx.lineWidth=1;
+  for(const f of[.33,.66,1]){ctx.beginPath();ctx.arc(cx,cy,rad*f,0,6.283);ctx.stroke()}
+  ctx.beginPath();ctx.moveTo(cx-rad,cy);ctx.lineTo(cx+rad,cy);ctx.moveTo(cx,cy-rad);ctx.lineTo(cx,cy+rad);ctx.stroke();
+  ctx.save();ctx.beginPath();ctx.arc(cx,cy,rad,0,6.283);ctx.clip();
+  ctx.save();ctx.translate(cx,cy);ctx.rotate(radarSweep);
+  const sweepGrad=ctx.createLinearGradient(0,0,rad,0);sweepGrad.addColorStop(0,'#7fc38a55');sweepGrad.addColorStop(1,'#7fc38a00');
+  ctx.fillStyle=sweepGrad;ctx.beginPath();ctx.moveTo(0,0);ctx.arc(0,0,rad,-.5,.5);ctx.closePath();ctx.fill();
+  ctx.restore();
+  for(const e of enemies){const dx=e.x-P.x,dy=e.y-P.y,d=Math.hypot(dx,dy);if(d>RR)continue;
+    const bx=cx+dx/RR*rad,by=cy+dy/RR*rad;
+    ctx.fillStyle='#e8552f';ctx.beginPath();ctx.arc(bx,by,3.2,0,6.283);ctx.fill()}
+  ctx.restore();
+  ctx.fillStyle='#7fc38a';ctx.beginPath();ctx.arc(cx,cy,3.5,0,6.283);ctx.fill();
+  ctx.strokeStyle='#e8e2cf99';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(cx,cy,rad+8,0,6.283);ctx.stroke();
+  ctx.fillStyle='#e8e2cfcc';ctx.font='10px system-ui,sans-serif';ctx.textAlign='center';ctx.fillText(P.scoutT>0?'RADAR (scout)':'RADAR',cx,cy+rad+20);
+  ctx.restore();
+}
+function drawSonar(){
+  const RR=SONAR_PASSIVE_R,cx=W-78,cy=H-(CLASS[P.cls].radar?170:78),rad=58;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.save();
+  ctx.fillStyle='#0b1a1fcc';ctx.beginPath();ctx.arc(cx,cy,rad+8,0,6.283);ctx.fill();
+  ctx.strokeStyle='#8aa8c466';ctx.lineWidth=1;
+  for(const f of[.5,1]){ctx.beginPath();ctx.arc(cx,cy,rad*f,0,6.283);ctx.stroke()}
+  const active=P.sonarT>0;
+  ctx.save();ctx.beginPath();ctx.arc(cx,cy,rad,0,6.283);ctx.clip();
+  for(const dc of P.decoys){const dx=dc.x-P.x,dy=dc.y-P.y,d=Math.hypot(dx,dy);const R=active?SONAR_ACTIVE_R:RR;if(d>R)continue;
+    const bx=cx+dx/R*rad,by=cy+dy/R*rad;ctx.strokeStyle='#8aa8c4';ctx.lineWidth=1.2;ctx.beginPath();ctx.arc(bx,by,5,0,6.283);ctx.stroke()}
+  let nearest=Infinity;
+  for(const e of enemies){const dx=e.x-P.x,dy=e.y-P.y,d=Math.hypot(dx,dy);const R=active?SONAR_ACTIVE_R:RR;if(d>R)continue;
+    if(d<nearest)nearest=d;
+    const jitter=active?0:(d/R)*8;
+    const bx=cx+dx/R*rad+(Math.random()-.5)*jitter,by=cy+dy/R*rad+(Math.random()-.5)*jitter;
+    if(e.contactT>0){ctx.strokeStyle='#e8552f';ctx.lineWidth=1.2;ctx.globalAlpha=.5+.5*Math.sin(waterT*8);ctx.beginPath();ctx.arc(bx,by,5.5,0,6.283);ctx.stroke();ctx.globalAlpha=1}
+    ctx.fillStyle=active?'#7fc38a':'#7fc38a99';ctx.beginPath();ctx.arc(bx,by,2.6,0,6.283);ctx.fill()}
+  ctx.restore();
+  ctx.fillStyle='#8aa8c4';ctx.beginPath();ctx.arc(cx,cy,3,0,6.283);ctx.fill();
+  ctx.strokeStyle='#e8e2cf99';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(cx,cy,rad+8,0,6.283);ctx.stroke();
+  ctx.fillStyle='#e8e2cfcc';ctx.font='10px system-ui,sans-serif';ctx.textAlign='center';ctx.fillText(active?'SONAR (active)':'SONAR (passive)',cx,cy+rad+20);
+  if(nearest<Infinity)ctx.fillText('nearest '+Math.round(nearest)+'m',cx,cy+rad+33);
+  ctx.restore();
+}
+let last=0,waterT=0;
+function frame(ts){const dt=Math.min(.05,(ts-last)/1000||0);last=ts;waterT+=dt;
+  if(st==='play')update(dt);
+  for(let i=fx.length-1;i>=0;i--){fx[i].t+=dt;if(fx[i].t>=fx[i].d)fx.splice(i,1)}
+  draw();requestAnimationFrame(frame)}
+
+addEventListener('keydown',e=>{const k=e.key.toLowerCase();
+  if(st==='play'&&[' ','arrowup','arrowdown','arrowleft','arrowright','e','t','h','r','c','b','v','x','g'].includes(k))e.preventDefault();
+  if(!e.repeat&&st==='play'){
+    if(k==='w'||k==='arrowup')P.th=Math.min(4,P.th+1);
+    if(k==='s'||k==='arrowdown')P.th=Math.max(0,P.th-1);
+    const cc=CLASS[P.cls];
+    if(cc.isCarrier&&k==='g'&&P.scoutCd<=0){P.scoutT=SCOUT_DUR;P.scoutCd=SCOUT_CD;sfx('ping');say('Scout plane launched — extended radar range!')}
+    if(cc.sub){
+      if(k==='shift'){P.dive=!P.dive;if(P.dive)P.deep=false;say(P.dive?'Snorkel depth (diesel)':'Surfaced')}
+      if(k==='c'){
+        if(!P.deep){if(P.battery<BATTERY_MIN_DIVE){say('Battery too low to crash dive')}else{P.deep=true;P.dive=false;say('Crash dive — battery: '+P.battery.toFixed(0)+'%')}}
+        else{P.deep=false;P.dive=true;say('Surfacing to snorkel')}
+      }
+      if(k==='v'&&P.sonarCd<=0){P.sonarT=SONAR_DUR;P.sonarCd=SONAR_CD;sfx('ping');for(const en of enemies){const d=Math.hypot(en.x-P.x,en.y-P.y);if(d<SONAR_ACTIVE_R){en.contactT=CONTACT_TIME;en.lastX=P.x;en.lastY=P.y;en.lastVx=Math.cos(P.a)*P.v;en.lastVy=Math.sin(P.a)*P.v}}say('Active sonar ping!')}
+      if(k==='x'&&P.decoyCd<=0){P.decoys.push({x:P.x-Math.cos(P.a)*30,y:P.y-Math.sin(P.a)*30,t:DECOY_DUR});P.decoyCd=DECOY_CD;sfx('launch');say('Acoustic decoy deployed!')}
+      if(k==='b'){
+        if(!P.tomMenu){P.tomMenu=true;P.tomSelected=[];say('Tomahawk menu — click contacts, B to launch')}
+        else{
+          P.tomMenu=false;
+          if(P.tomSelected.length){
+            if(P.tomCd>0){say('Tomahawk reloading: '+P.tomCd.toFixed(0)+'s')}
+            else{
+              for(const t of P.tomSelected)fireTomahawk(P,t);
+              P.tomCd=TOM_CD;
+              for(const en of enemies){const dd2=Math.hypot(en.x-P.x,en.y-P.y);if(dd2<HUNT_RADIUS){en.contactT=Math.max(en.contactT,HUNT_TIME);en.lastX=P.x;en.lastY=P.y;en.lastVx=Math.cos(P.a)*P.v;en.lastVy=Math.sin(P.a)*P.v}}
+              say('Tomahawks away — they know where you are now!');
+            }
+          }
+          P.tomSelected=[];
+        }
+      }
+    }
+  }
+  keys[k]=true});
+addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false});
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect();mouse.x=e.clientX-r.left;mouse.y=e.clientY-r.top});
+cv.addEventListener('pointerdown',e=>{if(st!=='play')return;const r=cv.getBoundingClientRect();mouse.x=e.clientX-r.left;mouse.y=e.clientY-r.top;
+  const cc=CLASS[P.cls];
+  if(P.tomMenu){
+    const bx=W/2,by=H/2,brad=Math.min(W,H)*0.33;
+    const bdx=mouse.x-bx,bdy=mouse.y-by,bd=Math.hypot(bdx,bdy);
+    if(bd<=brad){
+      const R=P.sonarT>0?SONAR_ACTIVE_R:SONAR_PASSIVE_R;
+      const wx=P.x+bdx/brad*R,wy=P.y+bdy/brad*R;
+      const tol=(R/brad)*18;
+      const t=findLock(wx,wy,tol);
+      if(t){const idx=P.tomSelected.indexOf(t);if(idx>=0)P.tomSelected.splice(idx,1);else if(P.tomSelected.length<TOM_SELECT_MAX)P.tomSelected.push(t)}
+    }
+    return;
+  }
+  if(e.button===2){
+    if(cc.missiles&&P.mrl<=0&&!P.selected.length){const m=mw();fireMissile(P,m.x,m.y,'p',null);P.mrl=cc.mReload||MRELOAD}
+    return;
+  }
+  const wpt=mw();
+  const t=findLock(wpt.x,wpt.y,CLICK_TOL);
+  if(t){
+    const idx=P.selected.indexOf(t);
+    if(idx>=0){P.selected.splice(idx,1);say('Target deselected')}
+    else if(P.selected.length<SELECT_MAX){P.selected.push(t);say('Target selected ('+P.selected.length+'/'+SELECT_MAX+')')}
+  }else if(P.selected.length){P.selected=[];say('Selection cleared')}
+  mdown=true;
+});
+addEventListener('pointerup',()=>{mdown=false});
+document.querySelectorAll('.pick').forEach(b=>b.addEventListener('click',()=>{
+  chosenClass=b.dataset.c;
+  document.querySelectorAll('.pick').forEach(x=>x.style.outline='');
+  b.style.outline='3px solid #14232b';
+  const go=$('go');go.disabled=false;go.style.opacity=1;go.textContent='Set sail — '+CLASS[chosenClass].label;
+  const mg=$('mpGo');mg.disabled=false;mg.style.opacity=1;
+}));
+function refreshShipLocks(){
+  const best=getBest();
+  document.querySelectorAll('.pick').forEach(b=>{
+    const need=parseInt(b.dataset.unlock,10)||0;
+    const locked=best<need;
+    b.disabled=locked;b.style.opacity=locked?.45:1;b.style.cursor=locked?'not-allowed':'pointer';
+    const d=b.querySelector('.pickdesc');
+    if(locked){if(!b.dataset.orig)b.dataset.orig=d.innerHTML;d.innerHTML='🔒 Unlocks at wave '+need}
+    else if(b.dataset.orig){d.innerHTML=b.dataset.orig}
+    if(locked&&chosenClass===b.dataset.c){chosenClass=null;const go=$('go');go.disabled=true;go.style.opacity=.5;go.textContent='Choose a ship first'}
+  });
+}
+$('go').addEventListener('click',()=>{if(!chosenClass)return;audioInit();mpMode=false;reset();st='play';$('panel').hidden=true;for(const k in keys)keys[k]=false});
+function joinMultiplayer(){
+  if(!chosenClass)return;
+  audioInit();
+  const mg=$('mpGo');
+  if(!sbClient){say('Multiplayer backend unavailable \u2014 check your connection');return}
+  mg.disabled=true;mg.textContent='Connecting\u2026';
+  const code=($('mpCode').value||'open-sea').trim().toLowerCase().replace(/[^a-z0-9_.-]/g,'').slice(0,24)||'open-sea';
+  myPeer=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():'p-'+Math.random().toString(36).slice(2,11);
+  peerMirror={};
+  if(sbChannel){try{sbClient.removeChannel(sbChannel)}catch(e){}}
+  sbChannel=sbClient.channel('irontide-'+code,{config:{presence:{key:myPeer},broadcast:{self:false}}});
+  sbChannel.on('presence',{event:'sync'},()=>syncPeerMirror());
+  sbChannel.on('broadcast',{event:'hit'},({payload})=>{
+    if(!mpMode||!payload||payload.to!==myPeer)return;
+    const cc=CLASS[P.cls];if(cc.sub&&P.deep)return;
+    const dmg=Number(payload.dmg)||0;
+    P.hp=Math.max(0,P.hp-dmg);shake=Math.max(shake,dmg);boom(P.x,P.y,'hit',.4);sfx('hit');
+    P.lastHitFrom=payload.from;
+    if(P.hp<=0){boom(P.x,P.y,'boom',.9);sfx('boom');if(sbChannel)sbChannel.send({type:'broadcast',event:'sunk',payload:{killer:payload.from,victim:myPeer}});mpRespawn()}
+  });
+  sbChannel.on('broadcast',{event:'sunk'},({payload})=>{
+    if(!mpMode||!payload||payload.killer!==myPeer)return;
+    kills++;score+=100;sfx('boom');say('Enemy sunk!');
+    const vm=peerMirror[payload.victim];if(vm)fx.push({k:'score',x:vm.x,y:vm.y,t:0,d:1.1,val:100});
+  });
+  sbChannel.subscribe(async status=>{
+    if(status==='SUBSCRIBED'){
+      await sbChannel.track({x:WORLD/2,y:WORLD/2,a:0,hp:1,maxhp:1,cls:chosenClass,kills:0});
+      mpMode=true;reset();st='play';$('panel').hidden=true;$('mpLeave').hidden=false;for(const k in keys)keys[k]=false;
+      mg.disabled=false;mg.textContent='Battle Online';
+    }else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){
+      say('Could not join that battle');mg.disabled=false;mg.textContent='Battle Online';
+    }
+  });
+}
+$('mpGo').addEventListener('click',joinMultiplayer);
+$('mpLeave').addEventListener('click',()=>{
+  if(sbChannel){try{sbClient.removeChannel(sbChannel)}catch(e){}}
+  sbChannel=null;mpMode=false;peerMirror={};myPeer=null;
+  $('mpLeave').hidden=true;st='menu';refreshShipLocks();
+  $('ttl').textContent='Iron Tide';$('sub').textContent='Sink the enemy fleet before it sinks you. Each wave is bigger than the last.';
+  $('go').textContent=chosenClass?('Set sail \u2014 '+CLASS[chosenClass].label):'Choose a ship first';
+  $('panel').hidden=false;
+});
+refreshShipLocks();
+const bw0=getBest();if(bw0)$('sub').textContent='Sink the enemy fleet before it sinks you. Each wave is bigger than the last. Best wave so far: '+bw0+'.';
+
+reset();requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
